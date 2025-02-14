@@ -1,18 +1,18 @@
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useRef } from "react";
 import { Card, Input, message } from "antd";
 
 const { Search } = Input;
 
 const YouTubeAudioPlayer = () => {
   const [urls, setUrls] = useState([
-    "https://www.youtube.com/watch?v=xuP4g7IDgDM", 
+    "https://www.youtube.com/watch?v=BB49x_uMlGA", 
     "https://www.youtube.com/watch?v=g4xs_5rZdos", 
-    "", 
-    "", 
+    "https://www.youtube.com/watch?v=I8-YbI98ikk", 
+    "https://www.youtube.com/watch?v=fFlG9waFfJE", 
     ""
   ]);
   const [currentIndex, setCurrentIndex] = useState(null);
-  const [player, setPlayer] = useState(null);
+  const playerRef = useRef(null);
 
   useEffect(() => {
     if (!window.YT) {
@@ -27,8 +27,8 @@ const YouTubeAudioPlayer = () => {
     window.onYouTubeIframeAPIReady = initializePlayer;
 
     return () => {
-      if (player) {
-        player.destroy(); // Clean up the player when the component unmounts
+      if (playerRef.current) {
+        playerRef.current.destroy();
       }
     };
   }, []);
@@ -36,7 +36,7 @@ const YouTubeAudioPlayer = () => {
   const initializePlayer = () => {
     if (!window.YT || !window.YT.Player) return;
 
-    const newPlayer = new window.YT.Player("youtube-player", {
+    playerRef.current = new window.YT.Player("youtube-player", {
       height: "0",
       width: "0",
       playerVars: {
@@ -49,34 +49,39 @@ const YouTubeAudioPlayer = () => {
         onStateChange: onPlayerStateChange,
       },
     });
-    setPlayer(newPlayer);
   };
 
   const onPlayerStateChange = (event) => {
     if (event.data === window.YT.PlayerState.ENDED) {
-      playNextVideo(); // Play next video when the current one ends
+      setTimeout(() => {
+        playNextVideo();
+      }, 500); // Add small delay before playing next video
     }
   };
 
   const playNextVideo = () => {
-    const nextIndex = currentIndex + 1;
-    if (nextIndex < urls.length && urls[nextIndex].trim()) {
-      setCurrentIndex(nextIndex);
-      const nextVideoId = extractVideoId(urls[nextIndex]);
-      if (nextVideoId) {
-        loadVideo(nextVideoId);
+    setCurrentIndex((prevIndex) => {
+      const nextIndex = prevIndex !== null ? prevIndex + 1 : 0;
+      
+      if (nextIndex < urls.length && urls[nextIndex].trim()) {
+        const nextVideoId = extractVideoId(urls[nextIndex]);
+        if (nextVideoId) {
+          loadVideo(nextVideoId);
+        } else {
+          message.error("Could not extract video ID. Please check the URL.");
+        }
+        return nextIndex;
       } else {
-        message.error("Could not extract video ID. Please check the URL.");
+        message.info("All videos have been played.");
+        return prevIndex; // Keep the last valid index
       }
-    } else {
-      message.info("All videos have been played.");
-    }
+    });
   };
+  
 
   const loadVideo = (videoId) => {
-    debugger
-    if (player && player.loadVideoById) {
-      player.loadVideoById(videoId);
+    if (playerRef.current && playerRef.current.loadVideoById) {
+      playerRef.current.loadVideoById(videoId);
     } else {
       message.error("Player is not ready yet. Please try again.");
     }
