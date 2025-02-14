@@ -1,25 +1,24 @@
 import React, { useState, useEffect, useRef } from "react";
-import { Card, Input, message } from "antd";
+import { Card, Input, Button, List, message ,Image} from "antd";
 
 const { Search } = Input;
 
 const YouTubeAudioPlayer = () => {
-  const [urls, setUrls] = useState([
-    "https://www.youtube.com/watch?v=BB49x_uMlGA", 
-    "https://www.youtube.com/watch?v=g4xs_5rZdos", 
-    "https://www.youtube.com/watch?v=I8-YbI98ikk", 
-    "https://www.youtube.com/watch?v=fFlG9waFfJE", 
-    ""
-  ]);
-  const [currentIndex, setCurrentIndex] = useState(null);
+  const [videos, setVideos] = useState([]);
+  const [newUrl, setNewUrl] = useState("");
+  const [isPlayerReady, setIsPlayerReady] = useState(false);
+  const [currentIndex, setCurrentIndex] = useState(0);
+  const [currentVideo, setCurrentVideo] = useState(null);
   const playerRef = useRef(null);
 
   useEffect(() => {
+    const storedVideos = JSON.parse(localStorage.getItem("videos")) || [];
+    setVideos(storedVideos);
+
     if (!window.YT) {
       const tag = document.createElement("script");
       tag.src = "https://www.youtube.com/iframe_api";
-      const firstScriptTag = document.getElementsByTagName("script")[0];
-      firstScriptTag.parentNode.insertBefore(tag, firstScriptTag);
+      document.body.appendChild(tag);
     } else {
       initializePlayer();
     }
@@ -36,6 +35,10 @@ const YouTubeAudioPlayer = () => {
   const initializePlayer = () => {
     if (!window.YT || !window.YT.Player) return;
 
+    if (playerRef.current) {
+      playerRef.current.destroy();
+    }
+
     playerRef.current = new window.YT.Player("youtube-player", {
       height: "0",
       width: "0",
@@ -49,35 +52,35 @@ const YouTubeAudioPlayer = () => {
         onStateChange: onPlayerStateChange,
       },
     });
+
+    setIsPlayerReady(true);
   };
 
   const onPlayerStateChange = (event) => {
     if (event.data === window.YT.PlayerState.ENDED) {
-      setTimeout(() => {
-        playNextVideo();
-      }, 500); // Add small delay before playing next video
+      setTimeout(playNextVideo, 500);
     }
   };
 
   const playNextVideo = () => {
+    const storedVideos = JSON.parse(localStorage.getItem("videos")) || [];
+    if (storedVideos.length === 0) {
+      message.error("No videos in the list.");
+      return;
+    }
+
     setCurrentIndex((prevIndex) => {
-      const nextIndex = prevIndex !== null ? prevIndex + 1 : 0;
-      
-      if (nextIndex < urls.length && urls[nextIndex].trim()) {
-        const nextVideoId = extractVideoId(urls[nextIndex]);
-        if (nextVideoId) {
-          loadVideo(nextVideoId);
-        } else {
-          message.error("Could not extract video ID. Please check the URL.");
-        }
+      const nextIndex = prevIndex + 1;
+      if (nextIndex < storedVideos.length) {
+        loadVideo(storedVideos[nextIndex].videoId);
+        setCurrentVideo(storedVideos[nextIndex]);
         return nextIndex;
       } else {
         message.info("All videos have been played.");
-        return prevIndex; // Keep the last valid index
+        return 0; 
       }
     });
   };
-  
 
   const loadVideo = (videoId) => {
     if (playerRef.current && playerRef.current.loadVideoById) {
@@ -87,21 +90,65 @@ const YouTubeAudioPlayer = () => {
     }
   };
 
-  const handlePlay = (index) => {
-    const url = urls[index];
-    if (!url) {
-      message.error("Please provide a valid YouTube URL.");
+  const handlePlayAll = () => {
+    if (!isPlayerReady) {
+      message.error("Player is still loading, please wait.");
       return;
     }
 
-    const videoId = extractVideoId(url);
+    if (videos.length === 0) {
+      message.error("No videos in the list.");
+      return;
+    }
+
+    setCurrentIndex(0);
+    setCurrentVideo(videos[0]);
+    loadVideo(videos[0].videoId);
+  };
+
+  const handleAddUrl = async () => {
+    if (!newUrl.trim()) {
+      message.error("Please enter a valid YouTube URL.");
+      return;
+    }
+
+    const videoId = extractVideoId(newUrl);
     if (!videoId) {
-      message.error("Could not extract video ID. Please check the URL.");
+      message.error("Invalid YouTube URL.");
       return;
     }
 
-    setCurrentIndex(index);
-    loadVideo(videoId);
+    if (videos.some((video) => video.videoId === videoId)) {
+      message.warning("This video is already in the list.");
+      return;
+    }
+
+    // Check if data is already in localStorage
+    const storedVideos = JSON.parse(localStorage.getItem("videos")) || [];
+    const existingVideo = storedVideos.find((video) => video.videoId === videoId);
+    
+    let videoData;
+    if (existingVideo) {
+      videoData = existingVideo;
+    } else {
+      videoData = await fetchVideoDetails(videoId);
+    }
+
+    if (!videoData) {
+      message.error("Could not fetch video details.");
+      return;
+    }
+
+    const updatedVideos = [...videos, videoData];
+    setVideos(updatedVideos);
+    localStorage.setItem("videos", JSON.stringify(updatedVideos));
+    setNewUrl("");
+  };
+
+  const handleDelete = (index) => {
+    const updatedVideos = videos.filter((_, i) => i !== index);
+    setVideos(updatedVideos);
+    localStorage.setItem("videos", JSON.stringify(updatedVideos));
   };
 
   const extractVideoId = (url) => {
@@ -109,26 +156,93 @@ const YouTubeAudioPlayer = () => {
     return match ? match[1] : null;
   };
 
+  const fetchVideoDetails = async (videoId) => {
+    try {
+      const response = await fetch(`https://noembed.com/embed?url=https://www.youtube.com/watch?v=${videoId}`);
+      const data = await response.json();
+      return {
+        videoId,
+        title: data.title,
+        thumbnail: data.thumbnail_url,
+      };
+    } catch (error) {
+      console.error("Error fetching video details:", error);
+      return null;
+    }
+  };
+
+  const handleClearLocalStorage = () => {
+    localStorage.removeItem("videos");
+    setVideos([]);
+  };
+
   return (
     <div className="flex flex-col items-center justify-center min-h-screen bg-gray-100 p-4">
       <Card className="w-full max-w-md" title="YouTube Audio Player" bordered={false} style={{ textAlign: "center" }}>
-        {urls.map((url, index) => (
-          <Search
-            key={index}
-            placeholder={`Paste YouTube link ${index + 1} here`}
-            enterButton={`Play ${index + 1}`}
-            size="large"
-            value={urls[index]}
-            onChange={(e) => {
-              const newUrls = [...urls];
-              newUrls[index] = e.target.value;
-              setUrls(newUrls);
-            }}
-            onSearch={() => handlePlay(index)}
-            className="mb-4"
+        <div className="flex mb-4">
+          <Input
+            placeholder="Paste YouTube link here"
+            value={newUrl}
+            onChange={(e) => setNewUrl(e.target.value)}
+            className="flex-grow"
           />
-        ))}
+          <Button type="primary" onClick={handleAddUrl} className="ml-2">
+            Add
+          </Button>
+        </div>
+
+        {videos.length > 0 && (
+          <Button type="primary" className="mb-4 w-full" onClick={handlePlayAll}>
+            Play All
+          </Button>
+        )}
+
+<List
+  bordered
+  dataSource={videos}
+  renderItem={(video, index) => (
+    <List.Item
+      actions={[
+        <Button type="link" onClick={() => {
+          loadVideo(video.videoId);
+          setCurrentVideo(video);
+        }}>
+          Play
+        </Button>,
+        <Button type="link" danger onClick={() => handleDelete(index)}>
+          Delete
+        </Button>,
+      ]}
+    >
+      <div className="flex items-center">
+        <Image 
+          src={video.thumbnail} 
+          alt={video.title} 
+          width={50}
+        />
+        <span>{video.title}</span>
+      </div>
+    </List.Item>
+  )}
+/>
+
+        <div className="mt-4">
+          <Button type="default" onClick={handleClearLocalStorage}>
+            Delete All
+          </Button>
+        </div>
+
         <div id="youtube-player"></div>
+
+        {currentVideo && (
+          <Card className="fixed bottom-4 w-full max-w-md bg-white shadow-lg p-4">
+            <div className="flex items-center justify-between">
+              <span>{currentVideo.title}</span>
+              <Button onClick={() => playerRef.current.playVideo()}>▶ Play</Button>
+              <Button onClick={() => playerRef.current.pauseVideo()}>⏸ Pause</Button>
+            </div>
+          </Card>
+        )}
       </Card>
     </div>
   );
